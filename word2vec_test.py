@@ -1,8 +1,6 @@
 #!/usr/bin/python3
 #coding:utf-8
 
-#因为要下载数据，所以导入的依赖库比较多
-#import tkinter
 import collections
 import math 
 import os
@@ -14,35 +12,15 @@ import tensorflow as tf
 from sklearn.manifold import TSNE
 import matplotlib.pyplot as plt
 
-
-
-#这边是python版本的一个检查，不同版本对应函数调用的接口是不一样的
-if sys.version_info[0] >= 3:
-    from urllib.request import urlretrieve
-else:
-    from urllib import urlretrieve
-
-#从网址下载数据并检查数据的准确性
-url = 'http://mattmahoney.net/dc/'
-
-def maybe_download(filename, excepted_bytes):
-    if not os.path.exists(filename):
-        filename, _ = urlretrieve(url + filename, filename)
-    statinfo = os.stat(filename)
-    if statinfo.st_size == excepted_bytes:
-        print("Found and verified", filename)
-
-    else:
-        print(statinfo.st_size)
-        raise Exception(
-            "Failed to verfy" + filename + "Can you get to it with browser?")
-    return filename
-filename = maybe_download('text8.zip', 31344016)
-
+filename = 'company_name_words3.txt'
 #定义读取数据的函数，并把数据转成列表
 def read_data(filename):
-    with zipfile.ZipFile(filename) as f:
-        data = tf.compat.as_str(f.read(f.namelist()[0])).split() # .split() 默认以空格分割字符串为数组
+    #with zipfile.ZipFile(filename) as f:
+    data = []
+    with open(filename) as f:
+        #data = tf.compat.as_str(f.read(f.namelist()[0])).split() # .split() 默认以空格分割字符串为数组
+        for row in f.readlines():
+            data.extend(row.split())
     return data
 
 words = read_data(filename)
@@ -73,6 +51,11 @@ data, count, dictionary, reverse_dictionary = build_dataset(words)
 
 #为了节约内存删除原始单词列表，打印出最高频出现的词汇及其数量
 del words
+
+# 保存字典　<index word>
+with open(os.path.join('dict','words.dict'),"w",encoding='utf-8') as f:
+    f.write(str(reverse_dictionary))
+
 print ('Most common words (+UNK)', count[:5])
 print('Sample data', data[:10], [reverse_dictionary[i] for i in data[:10]])
 
@@ -129,7 +112,7 @@ with graph.as_default():
 
     with tf.device('/cpu:0'):
         embeddings = tf.Variable(
-            tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0))
+            tf.random_uniform([vocabulary_size, embedding_size], -1.0, 1.0), name='embeddings') # add name
         embed = tf.nn.embedding_lookup(embeddings, train_inputs)
 
         nce_weights = tf.Variable(
@@ -154,10 +137,14 @@ with graph.as_default():
 
 
 #定义最大迭代次数，创建并设置默认的session
-num_steps = 100001
+#num_steps = 100001
+num_steps = 70001
 
 with tf.Session(graph = graph) as session:
     init.run()
+
+    #tensorflow存储
+    saver = tf.train.Saver()
     print("Initialized")
 
     average_loss = 0
@@ -173,6 +160,8 @@ with tf.Session(graph = graph) as session:
                 average_loss /= 2000
             print("Average loss at step ", step, ":", average_loss)
             average_loss = 0
+	    # 保存 tesorflow 模型结果
+            save_path =  saver.save(session,os.path.join('model','model.w2c'),global_step=step)
 
         if step % 10000 == 0:
             sim = similarity.eval()
@@ -188,7 +177,7 @@ with tf.Session(graph = graph) as session:
     final_embeddings = normalized_embeddings.eval()
 
 #定义可视化Word2Vec效果的函数
-def plot_with_labels(low_dim_embs, labels, filename = 'tsne.png'):
+def plot_with_labels(low_dim_embs, labels, filename = 'tsne_company_nm.png'):
     assert low_dim_embs.shape[0] >= len(labels), "More labels than embeddings"
     plt.figure(figsize= (18, 18))
     for i, label in enumerate(labels):
@@ -197,8 +186,11 @@ def plot_with_labels(low_dim_embs, labels, filename = 'tsne.png'):
         plt.annotate(label, xy = (x, y), xytext= (5, 2), textcoords = 'offset points', ha = 'right', va = 'bottom')
     plt.savefig(filename) 
 
+plt.rcParams['font.sans-serif'] = ['YaHei Consolas Hybrid']
+plt.rcParams['axes.unicode_minus'] = False # 解决保存图像是负号'-'显示为方块的问题
+
 tsne = TSNE(perplexity = 30, n_components = 2, init = 'pca', n_iter = 5000)
-plot_only = 100
+plot_only = 1000
 low_dim_embs = tsne.fit_transform(final_embeddings[:plot_only, :])
 labels = [reverse_dictionary[i] for i in range(plot_only)]
 plot_with_labels(low_dim_embs, labels)
